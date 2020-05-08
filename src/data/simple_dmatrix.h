@@ -12,6 +12,9 @@
 
 #include <memory>
 #include <string>
+#include <vector>
+#include <mutex>
+#include <condition_variable>
 
 
 namespace xgboost {
@@ -57,6 +60,74 @@ class SimpleDMatrix : public DMatrix {
   bool SparsePageExists() const override {
     return true;
   }
+};
+
+class BatchedDMatrix : public DMatrix {
+public:
+  static BatchedDMatrix* GetBatchedDMatrix(unsigned numBatches);
+
+  bool AddBatch(std::unique_ptr<DMatrix> batch);
+
+  MetaInfo& Info() override { return *info_; }
+
+  const MetaInfo& Info() const override { return *info_; }
+
+  bool SingleColBlock() const override { return true; }
+
+private:
+  explicit BatchedDMatrix(unsigned numBatches) : nBatches_(numBatches), info_(new MetaInfo) {}
+
+  BatchSet<SparsePage> GetRowBatches() override;
+
+  BatchSet<CSCPage> GetColumnBatches() override {
+    LOG(FATAL) << "method not implemented";
+  }
+  BatchSet<SortedCSCPage> GetSortedColumnBatches() override {
+    LOG(FATAL) << "method not implemented";
+  }
+  BatchSet<EllpackPage> GetEllpackBatches(const BatchParam& param) override {
+    LOG(FATAL) << "method not implemented";
+  }
+  DMatrix* Slice(common::Span<int32_t const> ridxs) override {
+    LOG(FATAL) << "method not implemented";
+  }
+
+  bool EllpackExists() const override { return true; }
+  bool SparsePageExists() const override { return false; }
+
+  using BatchVec = std::vector<SparsePage>;
+  
+  class BatchSetIteratorImpl : public BatchIteratorImpl<SparsePage> {
+  public:
+    explicit BatchSetIteratorImpl(const BatchVec& sources)
+      : sources_(sources), iter_(sources_.begin()) {}
+    SparsePage& operator*() override {
+      CHECK(!AtEnd());
+      *iter_;
+    }
+    const SparsePage& operator*() const override {
+      CHECK(!AtEnd());
+      *iter_;
+    }
+    void operator++() override {
+      ++iter_;
+    }
+    bool AtEnd() const override {
+      return iter_ == sources_.end();
+    }
+  private:
+    const BatchVec& sources_;
+    BatchVec::const_iterator iter_;
+  };
+
+  static BatchedDMatrix *newMat_;
+  static std::mutex batchMutex_;
+  static std::condition_variable batchCv_;
+
+  unsigned nBatches_;
+  unsigned nSources_;
+  BatchVec sources_;
+  std::unique_ptr<MetaInfo> info_;
 };
 }  // namespace data
 }  // namespace xgboost

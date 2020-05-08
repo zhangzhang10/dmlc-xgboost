@@ -500,13 +500,15 @@ class DMatrix {
    * \param           nthread       Number of threads for construction.
    * \param           cache_prefix  (Optional) The cache prefix for external memory.
    * \param           page_size     (Optional) Size of the page.
+   * \param           num_batches   (Optional) If > 1 create BatchedDMatrix.
    *
    * \return  a Created DMatrix.
    */
   template <typename AdapterT>
   static DMatrix* Create(AdapterT* adapter, float missing, int nthread,
                          const std::string& cache_prefix = "",
-                         size_t page_size = kPageSize);
+                         size_t page_size = kPageSize,
+                         unsigned num_batches = 1);
 
   virtual DMatrix* Slice(common::Span<int32_t const> ridxs) = 0;
   /*! \brief page size 32 MB */

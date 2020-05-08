@@ -533,10 +533,22 @@ DMatrix* DMatrix::Load(const std::string& uri,
 
 template <typename AdapterT>
 DMatrix* DMatrix::Create(AdapterT* adapter, float missing, int nthread,
-                         const std::string& cache_prefix,  size_t page_size ) {
+    const std::string& cache_prefix,  size_t page_size, unsigned num_batches) {
   if (cache_prefix.length() == 0) {
-    // Data split mode is fixed to be row right now.
-    return new data::SimpleDMatrix(adapter, missing, nthread);
+    if (num_batches == 1) {
+      // Data split mode is fixed to be row right now.
+      return new data::SimpleDMatrix(adapter, missing, nthread);
+    } else {
+      data::BatchedDMatrix *batched = 
+        data::BatchedDMatrix::GetBatchedDMatrix(num_batches);
+      if (batched->AddBatch(
+            std::unique_ptr<data::SimpleDMatrix>{
+            new data::SimpleDMatrix(adapter, missing, 1)})) {
+        return batched;
+      } else {
+        return new data::SimpleDMatrix;
+      }
+    }
   } else {
 #if DMLC_ENABLE_STD_THREAD
     return new data::SparsePageDMatrix(adapter, missing, nthread, cache_prefix,
@@ -550,22 +562,22 @@ DMatrix* DMatrix::Create(AdapterT* adapter, float missing, int nthread,
 
 template DMatrix* DMatrix::Create<data::DenseAdapter>(
     data::DenseAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 template DMatrix* DMatrix::Create<data::CSRAdapter>(
     data::CSRAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 template DMatrix* DMatrix::Create<data::CSCAdapter>(
     data::CSCAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 template DMatrix* DMatrix::Create<data::DataTableAdapter>(
     data::DataTableAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 template DMatrix* DMatrix::Create<data::FileAdapter>(
     data::FileAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 template DMatrix* DMatrix::Create<data::IteratorAdapter>(
     data::IteratorAdapter* adapter, float missing, int nthread,
-    const std::string& cache_prefix, size_t page_size);
+    const std::string& cache_prefix, size_t page_size, unsigned num_batches);
 
 SparsePage SparsePage::GetTranspose(int num_columns) const {
   SparsePage transpose;

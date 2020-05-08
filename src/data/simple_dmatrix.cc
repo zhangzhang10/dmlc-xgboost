@@ -197,5 +197,66 @@ template SimpleDMatrix::SimpleDMatrix(FileAdapter* adapter, float missing,
                                      int nthread);
 template SimpleDMatrix::SimpleDMatrix(IteratorAdapter* adapter, float missing,
                                      int nthread);
+
+// static members of BatchedDMatrix
+BatchedDMatrix* BatchedDMatrix::newMat_{nullptr};
+std::mutex BatchedDMatrix::batchMutex_;
+std::condition_variable BatchedDMatrix::batchCv_;
+BatchedDMatrix* BatchedDMatrix::GetBatchedDMatrix(unsigned numBatches) {
+  std::lock_guard<std::mutex> lg(batchMutex_);
+  if (!newMat_) {
+    newMat_ = new BatchedDMatrix(numBatches);
+  }
+  return newMat_;
+}
+
+bool BatchedDMatrix::AddBatch(std::unique_ptr<DMatrix> batch) {
+  std::unique_lock<std::mutex> ul(batchMutex_);
+  // add the single batch
+  for (auto& page : batch->GetBatches<SparsePage>()) {
+    sources_.emplace_back(std::move(page));
+  }
+  // update info.labels
+  auto& from = batch->Info();
+  auto& src_labels = from.labels_.HostVector();
+  auto& labels = info_->labels_.HostVector();
+  labels.insert(labels.end(), src_labels.begin(), src_labels.end());
+  // update info.weights
+  auto& src_weights = from.weights_.HostVector();
+  auto& weights = info_->weights_.HostVector();
+  weights.insert(weights.end(), src_weights.begin(), src_weights.end());
+  // update info.group_ptr
+  auto& src_gptr = from.group_ptr_;
+  auto& gptr = info_->group_ptr_;
+  gptr.insert(gptr.end(), src_gptr.begin(), src_gptr.end());
+  // updat info.num_row
+  info_->num_row_ += from.num_row_;
+  // update info.num_col
+  if (info_->num_col_ == 0) {
+    info_->num_col_ = from.num_col_;
+  } else {
+    CHECK_EQ(info_->num_col_, from.num_col_) << "invalid data, num_col mismatch";
+  }
+  // update info.num_nonzero
+  info_->num_nonzero_ += from.num_nonzero_;
+  from.Clear();
+
+  if (++nSources_ == nBatches_) {
+    newMat_ = nullptr;
+    // notify all
+    batchCv_.notify_all();
+    return true;
+  } else {
+    // this thread doesn't continue until notified
+    batchCv_.wait(ul);
+    return false;
+  }
+}
+
+BatchSet<SparsePage> BatchedDMatrix::GetRowBatches() {
+  auto begin_iter = BatchIterator<SparsePage>(new BatchSetIteratorImpl(sources_));
+  return BatchSet<SparsePage>(begin_iter);
+}
+
 }  // namespace data
 }  // namespace xgboost

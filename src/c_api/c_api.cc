@@ -62,9 +62,10 @@ int XGDMatrixCreateFromFile(const char *fname,
 XGB_DLL int XGDMatrixCreateFromDataIter(
     void *data_handle,                  // a Java interator
     XGBCallbackDataIterNext *callback,  // C++ callback defined in xgboost4j.cpp
-    const char *cache_info, DMatrixHandle *out) {
+    const char *cache_info, unsigned num_batches, DMatrixHandle *out) {
   API_BEGIN();
 
+  CHECK_GE(num_batches, 1) << "num_batches must not be less than 1";
   std::string scache;
   if (cache_info != nullptr) {
     scache = cache_info;

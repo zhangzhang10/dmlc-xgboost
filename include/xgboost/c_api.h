@@ -131,6 +131,7 @@ XGB_DLL int XGDMatrixCreateFromFile(const char *fname,
  * \param data_handle The handle to the data.
  * \param callback The callback to get the data.
  * \param cache_info Additional information about cache file, can be null.
+ * \param num_batches If > 0 create batched DMatrix.
  * \param out The created DMatrix
  * \return 0 when success, -1 when failure happens.
  */
@@ -138,6 +139,7 @@ XGB_DLL int XGDMatrixCreateFromDataIter(
     DataIterHandle data_handle,
     XGBCallbackDataIterNext* callback,
     const char* cache_info,
+    unsigned num_batches,
     DMatrixHandle *out);
 
 /*!
