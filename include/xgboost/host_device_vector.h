@@ -116,6 +116,8 @@ class HostDeviceVector {
   void Copy(const std::vector<T>& other);
   void Copy(std::initializer_list<T> other);
 
+  void Append(const HostDeviceVector<T>& other);
+
   std::vector<T>& HostVector();
   const std::vector<T>& ConstHostVector() const;
   const std::vector<T>& HostVector() const {return ConstHostVector(); }
