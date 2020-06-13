@@ -325,6 +325,11 @@ void HostDeviceVector<T>::Copy(std::initializer_list<T> other) {
 }
 
 template <typename T>
+void HostDeviceVector<T>::Append(const HostDeviceVector<T>& other) {
+  // we still don't need combine on GPU now
+}
+
+template <typename T>
 std::vector<T>& HostDeviceVector<T>::HostVector() { return impl_->HostVector(); }
 
 template <typename T>
