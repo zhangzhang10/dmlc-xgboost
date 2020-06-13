@@ -170,7 +170,8 @@ struct Entry {
   /*! \brief feature value */
   bst_float fvalue;
   /*! \brief default constructor */
-  Entry(){};
+  Entry() {
+  }
   /*!
    * \brief constructor with index and value
    * \param index The feature or row index.
