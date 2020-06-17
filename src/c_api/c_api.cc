@@ -313,7 +313,7 @@ XGB_DLL int XGDMatrixNumRow(const DMatrixHandle handle,
   API_BEGIN();
   CHECK_HANDLE();
   *out = static_cast<xgboost::bst_ulong>(
-      static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info().num_nonzero_());
+      static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info().num_row_);
   API_END();
 }
 
@@ -322,7 +322,7 @@ XGB_DLL int XGDMatrixDataVecSize(const DMatrixHandle handle,
   API_BEGIN();
   CHECK_HANDLE();
   *out = static_cast<xgboost::bst_ulong>(
-      static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info().num_row_);
+      static_cast<std::shared_ptr<DMatrix>*>(handle)->get()->Info().num_nonzero_);
   API_END();
 }
 XGB_DLL int XGDMatrixNumCol(const DMatrixHandle handle,
