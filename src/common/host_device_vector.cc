@@ -139,8 +139,12 @@ void HostDeviceVector<T>::Copy(std::initializer_list<T> other) {
 template <typename T>
 void HostDeviceVector<T>::Append(const HostDeviceVector<T>& other) {
   size_t thisend = HostVector().size();
-  HostVector().resize(other.HostVector().size()+thisend);
-  std::copy(other.HostVector().begin(), other.HostVector().end(), &HostVector()[thisend]);
+  // HostVector().resize(other.HostVector().size()+thisend);
+  // std::copy(other.HostVector().begin(), other.HostVector().end(), &HostVector()[thisend]);
+  HostVector().reserve(other.HostVector().size() + thisend);
+  HostVector().insert(HostVector().end(),
+                      other.HostVector().begin(),
+                      other.HostVector().end());
 }
 
 
