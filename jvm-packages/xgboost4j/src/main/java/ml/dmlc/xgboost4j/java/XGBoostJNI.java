@@ -70,6 +70,9 @@ class XGBoostJNI {
 
   public final static native int XGDMatrixSliceDMatrix(long handle, int[] idxset, long[] out);
 
+  public final static native int XGDMatrixCombineDMatrix(long handleLeft, long handleRight,
+		                                                 long totalSize, long[] out);
+
   public final static native int XGDMatrixFree(long handle);
 
   public final static native int XGDMatrixSaveBinary(long handle, String fname, int silent);
@@ -84,6 +87,8 @@ class XGBoostJNI {
 
   public final static native int XGDMatrixNumRow(long handle, long[] row);
 
+  public final static native int XGDMatrixDataVecSize(long handle, long[] row);
+  
   public final static native int XGBoosterCreate(long[] handles, long[] out);
 
   public final static native int XGBoosterFree(long handle);

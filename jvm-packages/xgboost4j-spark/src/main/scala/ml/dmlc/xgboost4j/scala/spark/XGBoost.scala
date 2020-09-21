@@ -35,6 +35,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkContext, SparkParallelismTracker, TaskContext, TaskFailedListener}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.storage.StorageLevel
+import org.apache.spark.rdd.ExecutorInProcessCoalescePartitioner
 
 
 /**
@@ -63,6 +64,7 @@ private[this] case class XGBoostExecutionInputParams(trainTestRatio: Double, see
 
 private[this] case class XGBoostExecutionParams(
     numWorkers: Int,
+    nThread: Int,
     numRounds: Int,
     useExternalMemory: Boolean,
     obj: ObjectiveTrait,
@@ -133,13 +135,16 @@ private[this] class XGBoostExecutionParamsFactory(rawParams: Map[String, Any], s
   private def overrideParams(
       params: Map[String, Any],
       sc: SparkContext): Map[String, Any] = {
-    val coresPerTask = sc.getConf.getInt("spark.task.cpus", 1)
+    val coresPerTask = sc.getConf.getInt("spark.executor.cores", 1)
+    val cpusPerTask = sc.getConf.getInt("spark.task.cpus", 1)
     var overridedParams = params
-    if (overridedParams.contains("nthread")) {
+    if (isLocal) {
+      overridedParams = overridedParams + ("nthread" -> cpusPerTask)
+    } else if (overridedParams.contains("nthread")) {
       val nThread = overridedParams("nthread").toString.toInt
       require(nThread <= coresPerTask,
         s"the nthread configuration ($nThread) must be no larger than " +
-          s"spark.task.cpus ($coresPerTask)")
+          s"spark.executor.cores ($coresPerTask)")
     } else {
       overridedParams = overridedParams + ("nthread" -> coresPerTask)
     }
@@ -162,6 +167,7 @@ private[this] class XGBoostExecutionParamsFactory(rawParams: Map[String, Any], s
 
   def buildXGBRuntimeParams: XGBoostExecutionParams = {
     val nWorkers = overridedParams("num_workers").asInstanceOf[Int]
+    val nThread = overridedParams("nthread").asInstanceOf[Int]
     val round = overridedParams("num_round").asInstanceOf[Int]
     val useExternalMemory = overridedParams("use_external_memory").asInstanceOf[Boolean]
     val obj = overridedParams.getOrElse("custom_obj", null).asInstanceOf[ObjectiveTrait]
@@ -224,8 +230,8 @@ private[this] class XGBoostExecutionParamsFactory(rawParams: Map[String, Any], s
     val killSparkContext = overridedParams.getOrElse("kill_spark_context_on_worker_failure", true)
       .asInstanceOf[Boolean]
 
-    val xgbExecParam = XGBoostExecutionParams(nWorkers, round, useExternalMemory, obj, eval,
-      missing, allowNonZeroForMissing, trackerConf,
+    val xgbExecParam = XGBoostExecutionParams(nWorkers, nThread, round, useExternalMemory, obj,
+      eval, missing, allowNonZeroForMissing, trackerConf,
       timeoutRequestWorkers,
       checkpointParam,
       inputParams,
@@ -405,14 +411,15 @@ object XGBoost extends Serializable {
         logger.info("Leveraging gpu device " + gpuId + " to train")
         params = params + ("gpu_id" -> gpuId)
       }
+      val watchesmap = watches.toMap
       val booster = if (makeCheckpoint) {
         SXGBoost.trainAndSaveCheckpoint(
-          watches.toMap("train"), params, numRounds,
-          watches.toMap, metrics, obj, eval,
+          watchesmap("train"), params, numRounds,
+          watchesmap, metrics, obj, eval,
           earlyStoppingRound = numEarlyStoppingRounds, prevBooster, externalCheckpointParams)
       } else {
-        SXGBoost.train(watches.toMap("train"), params, numRounds,
-          watches.toMap, metrics, obj, eval,
+        SXGBoost.train(watchesmap("train"), params, numRounds,
+          watchesmap, metrics, obj, eval,
           earlyStoppingRound = numEarlyStoppingRounds, prevBooster)
       }
       Iterator(booster -> watches.toMap.keys.zip(metrics).toMap)
@@ -453,18 +460,18 @@ object XGBoost extends Serializable {
   private def coPartitionNoGroupSets(
       trainingData: RDD[XGBLabeledPoint],
       evalSets: Map[String, RDD[XGBLabeledPoint]],
-      nWorkers: Int) = {
+      nPartitions: Int) = {
     // eval_sets is supposed to be set by the caller of [[trainDistributed]]
     val allDatasets = Map("train" -> trainingData) ++ evalSets
     val repartitionedDatasets = allDatasets.map{case (name, rdd) =>
-      if (rdd.getNumPartitions != nWorkers) {
-        (name, rdd.repartition(nWorkers))
+      if (rdd.getNumPartitions != nPartitions) {
+        (name, rdd.repartition(nPartitions))
       } else {
         (name, rdd)
       }
     }
     repartitionedDatasets.foldLeft(trainingData.sparkContext.parallelize(
-      Array.fill[(String, Iterator[XGBLabeledPoint])](nWorkers)(null), nWorkers)){
+      Array.fill[(String, Iterator[XGBLabeledPoint])](nPartitions)(null), nPartitions)){
       case (rddOfIterWrapper, (name, rddOfIter)) =>
         rddOfIterWrapper.zipPartitions(rddOfIter){
           (itrWrapper, itr) =>
@@ -490,27 +497,95 @@ object XGBoost extends Serializable {
       prevBooster: Booster,
       evalSetsMap: Map[String, RDD[XGBLabeledPoint]]): RDD[(Booster, Map[String, Array[Float]])] = {
     if (evalSetsMap.isEmpty) {
-      trainingData.mapPartitions(labeledPoints => {
+      val watchrdd = trainingData.mapPartitions(labeledPoints => {
         val watches = Watches.buildWatches(xgbExecutionParams,
           processMissingValues(labeledPoints, xgbExecutionParams.missing,
             xgbExecutionParams.allowNonZeroForMissing),
           getCacheDirName(xgbExecutionParams.useExternalMemory))
-        buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
-          xgbExecutionParams.eval, prevBooster)
+        Iterator(watches)
+      }).filter( watches => {
+        val tomap = watches.toMap
+        if (tomap.size == 0) {
+          watches.delete()
+        }
+        tomap.size>0
       }).cache()
+
+      try {
+        watchrdd.foreachPartition(() => _)
+        watchrdd.count()
+      } catch {
+        case t: Throwable =>
+          logger.error("building watches failed due to ", t)
+          throw new XGBoostError("Building watches failed")
+      }
+
+      if (xgbExecutionParams.isLocal) {
+        watchrdd.mapPartitions(iter => {
+          val watches = iter.next
+          buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
+            xgbExecutionParams.eval, prevBooster)
+        }).cache()
+      } else {
+        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.numWorkers).cache()
+        reducedrdd.count()
+        watchrdd.unpersist()
+
+        reducedrdd.mapPartitions(iter => {
+          val watches = iter.next
+          buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
+            xgbExecutionParams.eval, prevBooster)
+        }).cache()
+      }
     } else {
-      coPartitionNoGroupSets(trainingData, evalSetsMap, xgbExecutionParams.numWorkers).
-        mapPartitions {
-          nameAndLabeledPointSets =>
+      val nPartitions = if (xgbExecutionParams.isLocal) {
+        xgbExecutionParams.numWorkers
+      } else {
+        xgbExecutionParams.numWorkers * xgbExecutionParams.nThread
+      }
+      val watchrdd = coPartitionNoGroupSets(trainingData, evalSetsMap, nPartitions).mapPartitions(
+          nameAndLabeledPointSets => {
             val watches = Watches.buildWatches(
               nameAndLabeledPointSets.map {
                 case (name, iter) => (name, processMissingValues(iter,
                   xgbExecutionParams.missing, xgbExecutionParams.allowNonZeroForMissing))
               },
               getCacheDirName(xgbExecutionParams.useExternalMemory))
-            buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
-              xgbExecutionParams.eval, prevBooster)
-        }.cache()
+            Iterator(watches)
+          }).filter( watches => {
+            val tomap = watches.toMap
+            if (tomap.size == 0) {
+              watches.delete()
+            }
+            tomap.size>0
+          }).cache()
+
+      try {
+        watchrdd.foreachPartition(() => _)
+        watchrdd.count()
+      } catch {
+        case t: Throwable =>
+          logger.error("building watches failed due to ", t)
+          throw new XGBoostError("Building watches failed")
+      }
+
+      if (xgbExecutionParams.isLocal) {
+        watchrdd.mapPartitions(iter => {
+          val watches = iter.next
+          buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
+            xgbExecutionParams.eval, prevBooster)
+        }).cache()
+      } else {
+        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.numWorkers).cache()
+        reducedrdd.count()
+        watchrdd.unpersist()
+
+        reducedrdd.mapPartitions(iter => {
+          val watches = iter.next
+          buildDistributedBooster(watches, xgbExecutionParams, rabitEnv, xgbExecutionParams.obj,
+            xgbExecutionParams.eval, prevBooster)
+        }).cache()
+      }
     }
   }
 
@@ -543,6 +618,26 @@ object XGBoost extends Serializable {
             xgbExecutionParam.eval,
             prevBooster)
         }).cache()
+    }
+  }
+
+  private def processWatchesRDD(watchrdd: RDD[Watches], numWorkers: Int): RDD[Watches] = {
+    val coalescedrdd = watchrdd.coalesce(1,
+        partitionCoalescer = Some(new ExecutorInProcessCoalescePartitioner()))
+    coalescedrdd.mapPartitions { iter =>
+        val matcharr = iter.toArray
+        val totalsize = matcharr.foldLeft(Map("train" -> 0L)) {
+           (l, r) => {
+             val merged = l.toSeq ++ r.dataVecSizeMap.toSeq
+             merged.groupBy(_._1).mapValues(_.map(_._2).sum)
+           }
+        }
+        Iterator( matcharr.reduce { (l, r) =>
+          val rst = l.combineDMatrix(r, totalsize)
+          l.delete()
+          r.delete()
+          rst
+       })
     }
   }
 
@@ -755,13 +850,25 @@ private class Watches private(
     names.zip(datasets).toMap.filter { case (_, matrix) => matrix.rowNum > 0 }
   }
 
+  def dataVecSizeMap: Map[String, Long] = {
+    toMap.map{ case (key, matrix) => (key, matrix.dataVecSize) }
+  }
+
   def size: Int = toMap.size
 
   def delete(): Unit = {
-    toMap.values.foreach(_.delete())
+    datasets.foreach(_.delete())
     cacheDirName.foreach { name =>
       FileUtils.deleteDirectory(new File(name))
     }
+  }
+
+  def combineDMatrix(rightWatches: Watches, rowMap: Map[String, Long]): Watches = {
+    val namemap = rightWatches.toMap
+    val result = toMap.map( ndpair => {
+      ndpair._2.combine(namemap(ndpair._1), rowMap(ndpair._1))
+    }).toArray
+    return new Watches(result, toMap.keys.toArray, cacheDirName)
   }
 
   override def toString: String = toMap.toString

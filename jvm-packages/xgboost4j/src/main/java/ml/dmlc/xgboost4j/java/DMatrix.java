@@ -49,6 +49,7 @@ public class DMatrix {
     }
     // 32k as batch size
     int batchSize = 32 << 10;
+    // int batchSize = 719928/2;
     Iterator<DataBatch> batchIter = new DataBatch.BatchIterator(iter, batchSize);
     long[] out = new long[1];
     XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixCreateFromDataIter(batchIter, cacheInfo, out));
@@ -292,6 +293,24 @@ public class DMatrix {
   }
 
   /**
+   * Combine Two DMatrix into one
+   *
+   * @return combined DMatrix
+   * @throws XGBoostError native error
+   */
+  public DMatrix combine(DMatrix dmx, long totalSize) throws XGBoostError {
+    long[] out = new long[1];
+    XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixCombineDMatrix(handle, dmx.handle, totalSize, out));
+    long sHandle = out[0];
+    DMatrix sMatrix = new DMatrix(sHandle);
+
+    // Release the right handler.
+    // dmx.dispose();
+
+    return sMatrix;
+  }
+
+  /**
    * get the row number of DMatrix
    *
    * @return number of rows
@@ -301,6 +320,18 @@ public class DMatrix {
     long[] rowNum = new long[1];
     XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixNumRow(handle, rowNum));
     return rowNum[0];
+  }
+
+  /**
+   * get the data vector size of DMatrix
+   *
+   * @return size of data vector
+   * @throws XGBoostError native error
+   */
+  public long dataVecSize() throws XGBoostError {
+    long[] size = new long[1];
+    XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixDataVecSize(handle, size));
+    return size[0];
   }
 
   /**

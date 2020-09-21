@@ -386,6 +386,20 @@ XGB_DLL int XGDMatrixSliceDMatrixEx(DMatrixHandle handle,
                                     bst_ulong len,
                                     DMatrixHandle *out,
                                     int allow_groups);
+
+
+/*!
+ * \brief combine right dmatrix into left, return the left
+ * \param handle_left instance of data matrix to be merged into
+ * \param handle right instance of data matrix to be merged
+ * \param out the left instance of data matrix
+ * \return 0 when success, -1 when failure happens
+ */
+XGB_DLL int XGDMatrixCombineDMatrix(DMatrixHandle handle_left,
+                                  DMatrixHandle handle_right,
+                                  uint64_t total_size,
+                                  DMatrixHandle* out);
+
 /*!
  * \brief free space in data matrix
  * \return 0 when success, -1 when failure happens
@@ -575,6 +589,14 @@ XGB_DLL int XGDMatrixGetUIntInfo(const DMatrixHandle handle,
  * \return 0 when success, -1 when failure happens
  */
 XGB_DLL int XGDMatrixNumRow(DMatrixHandle handle,
+                            bst_ulong *out);
+/*!
+ * \brief get data vector size.
+ * \param handle the handle to the DMatrix
+ * \param out The address to hold data vector size
+ * \return 0 when success, -1 when failure happens
+ */
+XGB_DLL int XGDMatrixDataVecSize(DMatrixHandle handle,
                             bst_ulong *out);
 /*!
  * \brief get number of columns

@@ -331,6 +331,24 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixSliceDMat
 
 /*
  * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGDMatrixCombineDMatrix
+ * Signature: (JJ[J)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCombineDMatrix
+  (JNIEnv *jenv, jclass jcls, jlong jhandle, jlong jhandle_right, jlong totalsize, jlongArray jout) {
+  DMatrixHandle result;
+  DMatrixHandle handle = (DMatrixHandle) jhandle;
+  DMatrixHandle handle_right = (DMatrixHandle) jhandle_right;
+
+  jint ret = (jint) XGDMatrixCombineDMatrix(handle, handle_right, totalsize, &result);
+  JVM_CHECK_CALL(ret);
+  setHandle(jenv, jout, result);
+
+  return ret;
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
  * Method:    XGDMatrixFree
  * Signature: (J)V
  */
@@ -451,6 +469,21 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixNumRow
   DMatrixHandle handle = (DMatrixHandle) jhandle;
   bst_ulong result[1];
   int ret = (jint) XGDMatrixNumRow(handle, result);
+  JVM_CHECK_CALL(ret);
+  jenv->SetLongArrayRegion(jout, 0, 1, (const jlong *) result);
+  return ret;
+}
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGDMatrixDataVecSize
+ * Signature: (J)J
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixDataVecSize
+  (JNIEnv *jenv, jclass jcls, jlong jhandle, jlongArray jout) {
+  DMatrixHandle handle = (DMatrixHandle) jhandle;
+  bst_ulong result[1];
+  int ret = (jint) XGDMatrixDataVecSize(handle, result);
   JVM_CHECK_CALL(ret);
   jenv->SetLongArrayRegion(jout, 0, 1, (const jlong *) result);
   return ret;

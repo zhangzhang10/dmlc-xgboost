@@ -44,6 +44,35 @@ DMatrix* SimpleDMatrix::Slice(common::Span<int32_t const> ridxs) {
   return out;
 }
 
+DMatrix* SimpleDMatrix::Combine(DMatrix* right, uint64_t total_size) {
+  SparsePage& out_page = this->sparse_page_;
+
+  for (auto const &page : right->GetBatches<SparsePage>()) {
+    out_page.data.HostVector().reserve(total_size);
+    out_page.offset.HostVector().reserve(total_size+1);
+    out_page.Push(page);
+  }
+  this->Info().num_row_ +=right->Info().num_row_;
+  CHECK_EQ(this->Info().num_col_, right->Info().num_col_)
+          << "Inconsistent num columns";
+  this->Info().num_nonzero_ = out_page.offset.HostVector().back();
+  Info().labels_.Extend(right->Info().labels_);
+  Info().base_margin_.Extend(right->Info().base_margin_);
+  Info().weights_.Extend(right->Info().weights_);
+  /*
+   * TODO: Currently, the Combine method doesn't support the learning-to-rank
+   * usecase. Combining group_ptr_ vectors is therefore disabled.
+  * auto& right_grp = right->Info().group_ptr_;
+  * std::vector<bst_group_t> gptr;
+  * std::sort(Info().group_ptr_.begin(), Info().group_ptr_.end());
+  * std::sort(right_grp.begin(), right_grp.end());
+  * std::set_union(Info().group_ptr_.begin(), Info().group_ptr_.end(),
+  *                right_grp.begin(), right_grp.end(), gptr.begin());
+  * Info().group_ptr_.swap(gptr);
+   */
+  return this;
+}
+
 BatchSet<SparsePage> SimpleDMatrix::GetRowBatches() {
   // since csr is the default data structure so `source_` is always available.
   auto begin_iter = BatchIterator<SparsePage>(
