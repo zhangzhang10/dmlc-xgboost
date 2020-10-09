@@ -9,7 +9,7 @@ endif (USE_DMLC_GTEST)
 
 if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
   target_compile_definitions(gtest PRIVATE
-                    -D_GLIBCXX_USE_CXX11_ABI=0)
+                    -D_GLIBCXX_USE_CXX11_ABI=1)
 endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
 
 file(GLOB_RECURSE TEST_SOURCES "*.cc")
@@ -29,7 +29,7 @@ add_executable(testxgboost ${TEST_SOURCES}
 
 if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
   target_compile_definitions(testxgboost PRIVATE
-                    -D_GLIBCXX_USE_CXX11_ABI=0)
+                    -D_GLIBCXX_USE_CXX11_ABI=1)
 endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
 target_link_libraries(testxgboost PRIVATE objxgboost)
 

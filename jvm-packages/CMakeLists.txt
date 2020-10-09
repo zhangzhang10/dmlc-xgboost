@@ -16,7 +16,7 @@ target_include_directories(xgboost4j
 
 if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
   target_compile_definitions(xgboost4j PRIVATE
-                    -D_GLIBCXX_USE_CXX11_ABI=0)
+                    -D_GLIBCXX_USE_CXX11_ABI=1)
 endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
 
 set_output_directory(xgboost4j ${PROJECT_SOURCE_DIR}/lib)
