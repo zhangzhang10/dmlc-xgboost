@@ -161,10 +161,10 @@ set_target_properties(dmlc PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
   target_compile_definitions(dmlc PRIVATE
-                             -D_GLIBCXX_USE_CXX11_ABI=0)
+                             -D_GLIBCXX_USE_CXX11_ABI=1)
   if (TARGET dmlc_unit_tests)
     target_compile_definitions(dmlc_unit_tests PRIVATE
-                               -D_GLIBCXX_USE_CXX11_ABI=0)
+                               -D_GLIBCXX_USE_CXX11_ABI=1)
   endif (TARGET dmlc_unit_tests)
 endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
 if (MSVC)
@@ -253,7 +253,7 @@ target_link_libraries(runxgboost PRIVATE objxgboost)
 
 if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
   target_compile_definitions(runxgboost PRIVATE
-                    -D_GLIBCXX_USE_CXX11_ABI=0)
+                    -D_GLIBCXX_USE_CXX11_ABI=1)
 endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
 
 if (USE_NVTX)
@@ -271,6 +271,28 @@ set_target_properties(
   CXX_STANDARD 14
   CXX_STANDARD_REQUIRED ON)
 #-- End CLI for xgboost
+
+#-- arrow-test
+if (ARROW_FOUND AND ARROW_PYTHON_FOUND)
+  find_package(Parquet REQUIRED)
+  add_executable(arrow-test ${xgboost_SOURCE_DIR}/src/arrow-test.cc)
+  target_compile_definitions(arrow-test PRIVATE
+                    -DXGBOOST_BUILD_ARROW_SUPPORT=1
+                    -D_GLIBCXX_USE_CXX11_ABI=1)
+  target_include_directories(arrow-test
+    PRIVATE
+    ${xgboost_SOURCE_DIR}/include)
+  set_target_properties(
+    arrow-test PROPERTIES
+    OUTPUT_NAME arrow-test
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON)
+  target_link_libraries(arrow-test PRIVATE objxgboost ${PARQUET_SHARED_LIB})
+  set_output_directory(arrow-test ${xgboost_SOURCE_DIR})
+  add_dependencies(xgboost arrow-test)
+  add_dependencies(runxgboost arrow-test)
+endif (ARROW_FOUND AND ARROW_PYTHON_FOUND)
+#-- arrow-test
 
 set_output_directory(runxgboost ${xgboost_SOURCE_DIR})
 set_output_directory(xgboost ${xgboost_SOURCE_DIR}/lib)
