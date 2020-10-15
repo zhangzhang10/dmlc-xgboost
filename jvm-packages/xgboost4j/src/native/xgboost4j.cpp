@@ -23,6 +23,8 @@
 #include <cstring>
 #include <vector>
 #include <string>
+#include <arrow/api.h>
+#include "../../../src/data/adapter.h"
 
 #define JVM_CHECK_CALL(__expr)                                                 \
   {                                                                            \
@@ -159,6 +161,153 @@ XGB_EXTERN_C int XGBoost4jCallbackDataIterNext(
     LOG(FATAL) << e.what();
     return -1;
   }
+}
+
+class JRecordBatchReader : public arrow::RecordBatchReader {
+ public:
+  JRecordBatchReader(JNIEnv *jenv, jobject &jiter, jint width) : jenv_(jenv), jiter_(jiter), width_(width) {
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    for (int i = 0; i < width; i++) {
+      fields.push_back(std::make_shared<arrow::Field>("v" + std::to_string(i), arrow::float32()));
+    }
+    schema_ = std::make_shared<arrow::Schema>(fields);
+  }
+
+  std::shared_ptr<arrow::Schema> schema() const override {
+    return schema_;
+  }
+
+  arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch> *out) override {
+    // iterator flags
+    jclass iter_class = jenv_->FindClass("java/util/Iterator");
+    jmethodID has_next = jenv_->GetMethodID(iter_class,
+                                            "hasNext", "()Z");
+    jmethodID next = jenv_->GetMethodID(iter_class,
+                                        "next", "()Ljava/lang/Object;");
+
+    // jhandle flags
+    jclass record_batch_handle_class
+      = jenv_->FindClass("ml/dmlc/xgboost4j/java/arrow/ArrowRecordBatchHandle");
+    jclass record_batch_handle_field_class
+      = jenv_->FindClass("ml/dmlc/xgboost4j/java/arrow/ArrowRecordBatchHandle$Field");
+    jclass record_batch_handle_buffer_class
+      = jenv_->FindClass("ml/dmlc/xgboost4j/java/arrow/ArrowRecordBatchHandle$Buffer");
+    jmethodID record_batch_handle_get_num_rows = jenv_->GetMethodID(record_batch_handle_class,
+                                                                    "getNumRows", "()J");
+    jmethodID record_batch_handle_get_fields = jenv_->GetMethodID(record_batch_handle_class,
+                                                                  "getFields", "()[Lml/dmlc/xgboost4j/java/arrow/ArrowRecordBatchHandle$Field;");
+    jmethodID record_batch_handle_get_buffers = jenv_->GetMethodID(record_batch_handle_class,
+                                                                   "getBuffers", "()[Lml/dmlc/xgboost4j/java/arrow/ArrowRecordBatchHandle$Buffer;");
+    jmethodID record_batch_handle_field_get_length = jenv_->GetMethodID(record_batch_handle_field_class,
+                                                                        "getLength", "()J");
+    jmethodID record_batch_handle_field_get_null_count = jenv_->GetMethodID(record_batch_handle_field_class,
+                                                                            "getNullCount", "()J");
+    jmethodID record_batch_handle_buffer_get_memory_address = jenv_->GetMethodID(record_batch_handle_buffer_class,
+                                                                                 "getMemoryAddress", "()J");
+    jmethodID record_batch_handle_buffer_get_size = jenv_->GetMethodID(record_batch_handle_buffer_class,
+                                                                       "getSize", "()J");
+    jmethodID record_batch_handle_buffer_get_capacity = jenv_->GetMethodID(record_batch_handle_buffer_class,
+                                                                           "getCapacity", "()J");
+
+    if (jenv_->CallBooleanMethod(jiter_, has_next)) {
+      jobject batch = jenv_->CallObjectMethod(jiter_, next); // todo null check
+      jlong num_rows = jenv_->CallLongMethod(batch, record_batch_handle_get_num_rows);
+      jobjectArray fields = (jobjectArray) jenv_->CallObjectMethod(batch, record_batch_handle_get_fields);
+      jobjectArray buffers = (jobjectArray) jenv_->CallObjectMethod(batch, record_batch_handle_get_buffers);
+      // todo assert length == schema.length
+      std::vector<std::shared_ptr<arrow::ArrayData>> columns;
+      int buffer_index = 0;
+      for (int i = 0; i < jenv_->GetArrayLength(fields); i++) {
+        jobject field = jenv_->GetObjectArrayElement(fields, i);
+        jlong length = jenv_->CallLongMethod(field, record_batch_handle_field_get_length);
+        jlong null_count = jenv_->CallLongMethod(field, record_batch_handle_field_get_null_count);
+        std::vector<std::shared_ptr<arrow::Buffer>> data;
+        for (int j = 0; j < length; j++, buffer_index++) {
+          std::cout << "buffer_index: " << buffer_index << "\n";
+          jobject jbuffer = jenv_->GetObjectArrayElement(buffers, buffer_index);
+          jlong memory_address = jenv_->CallLongMethod(jbuffer, record_batch_handle_buffer_get_memory_address);
+          jlong size = jenv_->CallLongMethod(jbuffer, record_batch_handle_buffer_get_size);
+          jlong capacity = jenv_->CallLongMethod(jbuffer, record_batch_handle_buffer_get_capacity);
+          std::cout << "memory_address: " << memory_address << "\n";
+          std::cout << "size: " << size << "\n";
+          std::cout << "capacity: " << capacity << "\n";
+          data.push_back(std::make_shared<arrow::Buffer>(reinterpret_cast<uint8_t *>(memory_address), size));
+        }
+        std::cout << "buffer added: " << i << "\n";
+	    	std::shared_ptr<arrow::ArrayData> array_data = arrow::ArrayData::Make(arrow::float32(), num_rows , data);
+		
+        columns.push_back(array_data);
+      }
+      *out = arrow::RecordBatch::Make(schema_, num_rows, columns);
+    } else {
+      *out = nullptr;
+    }
+
+    jenv_->DeleteLocalRef(iter_class);
+    jenv_->DeleteLocalRef(record_batch_handle_class);
+    jenv_->DeleteLocalRef(record_batch_handle_field_class);
+    jenv_->DeleteLocalRef(record_batch_handle_buffer_class);
+    return arrow::Status::OK();
+  }
+
+ private:
+  JNIEnv *jenv_;
+  jobject jiter_;
+  std::shared_ptr<arrow::Schema> schema_;
+  jint width_;
+};
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGDMatrixCreateByRecordBatchIters
+ * Signature: (IILjava/util/Iterator;[J)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCreateByRecordBatchIters
+    (JNIEnv *jenv, jclass jcls, jint label_name_offset, jint width, jobject jiter, jlongArray jout) {
+  DMatrixHandle result;
+  std::unique_ptr<arrow::RecordBatchReader> jr;
+  jr.reset(new JRecordBatchReader(jenv, jiter, width));
+  
+  std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+  jr->ReadAll(&batches);
+
+  
+  std::vector<std::shared_ptr<arrow::Array>> array_vector;
+  std::vector<std::shared_ptr<arrow::RecordBatch>> batches_removed;
+  
+  int num_rows = 0;
+  int num_cols = 0;
+ 
+  for (auto iter = batches.begin(); iter != batches.end(); iter++) {
+	  std::shared_ptr<arrow::RecordBatch> batch = *iter;
+	  num_rows += batch->num_rows();
+	  num_cols = batch->num_columns() -1;
+	  
+	  std::shared_ptr<arrow::Array> array = batch->column(label_name_offset);
+	  array_vector.push_back(array);
+	  
+	  std::shared_ptr<arrow::RecordBatch> batch_removed;
+	  // ARROW_ASSIGN_OR_RAISE(batch_removed, batch->RemoveColumn(label_name_offset));
+	  batch->RemoveColumn(label_name_offset, &batch_removed);
+	  batches_removed.push_back(batch_removed);
+  }
+  
+ 
+  std::shared_ptr<arrow::ChunkedArray> label_col;
+  if (array_vector.size() == 0) {
+	 label_col = nullptr;
+  } else {
+	 label_col =  std::make_shared<arrow::ChunkedArray>(array_vector);
+  }
+  
+  #if defined(XGBOOST_BUILD_ARROW_SUPPORT)
+  xgboost::data::ArrowAdapter adapter(batches_removed, label_col, num_rows, num_cols);
+  #endif
+
+  result = new std::shared_ptr<xgboost::DMatrix>(
+        xgboost::DMatrix::Create(&adapter, 0, -1));
+  setHandle(jenv, jout, result);
+  return 0;
 }
 
 /*

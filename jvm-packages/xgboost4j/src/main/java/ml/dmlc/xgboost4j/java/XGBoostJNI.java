@@ -17,6 +17,7 @@ package ml.dmlc.xgboost4j.java;
 
 import java.nio.ByteBuffer;
 
+import ml.dmlc.xgboost4j.java.arrow.ArrowRecordBatchHandle;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -55,6 +56,10 @@ class XGBoostJNI {
 
   final static native int XGDMatrixCreateFromDataIter(java.util.Iterator<DataBatch> iter,
                                                              String cache_info, long[] out);
+  public final static native int XGDMatrixCreateByRecordBatchIters(int labelColOffset, int width,
+                                                                   java.util.Iterator<ArrowRecordBatchHandle> iter,
+                                                                   long[] out);
+
 
   public final static native int XGDMatrixCreateFromCSREx(long[] indptr, int[] indices, float[] data,
                                                         int shapeParam, long[] out);

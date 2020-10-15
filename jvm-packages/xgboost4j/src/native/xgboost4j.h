@@ -33,6 +33,14 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCreateFro
 
 /*
  * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    XGDMatrixCreateByRecordBatchIters
+ * Signature: (IILjava/util/Iterator;[J)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_XGDMatrixCreateByRecordBatchIters
+    (JNIEnv *, jclass, jint, jint, jobject, jlongArray);
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
  * Method:    XGDMatrixCreateFromCSREx
  * Signature: ([J[I[F[J)I
  */

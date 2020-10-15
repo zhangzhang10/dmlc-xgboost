@@ -18,6 +18,7 @@ package ml.dmlc.xgboost4j.java;
 import java.util.Iterator;
 
 import ml.dmlc.xgboost4j.LabeledPoint;
+import ml.dmlc.xgboost4j.java.arrow.ArrowRecordBatchHandle;
 import ml.dmlc.xgboost4j.java.util.BigDenseMatrix;
 
 /**
@@ -34,6 +35,25 @@ public class DMatrix {
   public static enum SparseType {
     CSR,
     CSC;
+  }
+
+  /**
+   * Create DMatrix from iterator of ArrowRecordBatchHandle.
+   *
+   * @param labelColOffset The index of label column among list of all columns
+   * @param width  The total number of feature fields
+   * @param iter The data iterator of ArrowRecordBatchHandle to provide the data.
+   * @throws XGBoostError
+   */
+  public DMatrix(int labelColOffset, int width, Iterator<ArrowRecordBatchHandle> iter)
+          throws XGBoostError {
+    if (iter == null) {
+      throw new NullPointerException("iter: null");
+    }
+    long[] out = new long[1];
+    XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixCreateByRecordBatchIters(labelColOffset,
+           width, iter, out));
+    handle = out[0];
   }
 
   /**

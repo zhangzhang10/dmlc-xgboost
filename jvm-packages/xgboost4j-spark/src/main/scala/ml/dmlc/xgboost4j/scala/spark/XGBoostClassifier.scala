@@ -17,6 +17,7 @@
 package ml.dmlc.xgboost4j.scala.spark
 
 import ml.dmlc.xgboost4j.java.Rabit
+import ml.dmlc.xgboost4j.java.arrow.ArrowRecordBatchHandle
 import ml.dmlc.xgboost4j.scala.spark.params._
 import ml.dmlc.xgboost4j.scala.{Booster, DMatrix, EvalTrait, ObjectiveTrait, XGBoost => SXGBoost}
 import ml.dmlc.xgboost4j.{LabeledPoint => XGBLabeledPoint}
@@ -161,7 +162,20 @@ class XGBoostClassifier (
     }
   }
 
-  override protected def train(dataset: Dataset[_]): XGBoostClassificationModel = {
+  override def fit(dataset: Dataset[_]): XGBoostClassificationModel = {
+    val columnar = dataset.sqlContext
+      .getConf("org.apache.spark.example.columnar.enabled", "False").toBoolean
+    if (columnar) {
+      copyValues(train(dataset, columnar = true).setParent(this))
+    } else {
+      super.fit(dataset)
+    }
+  }
+
+  override protected def train(dataset: Dataset[_]): XGBoostClassificationModel
+  = train(dataset, columnar = false)
+
+  protected def train(dataset: Dataset[_], columnar: Boolean): XGBoostClassificationModel = {
 
     if (!isDefined(evalMetric) || $(evalMetric).isEmpty) {
       set(evalMetric, setupDefaultEvalMetric())
@@ -170,8 +184,8 @@ class XGBoostClassifier (
     if (isDefined(customObj) && $(customObj) != null) {
       set(objectiveType, "classification")
     }
-
-    val _numClasses = getNumClasses(dataset)
+    // only for the benchmark when the label col data type is float
+    val _numClasses = 2
     if (isDefined(numClass) && $(numClass) != _numClasses) {
       throw new Exception("The number of classes in dataset doesn't match " +
         "\'num_class\' in xgboost params.")
@@ -184,19 +198,33 @@ class XGBoostClassifier (
       col($(baseMarginCol))
     }
 
-    val trainingSet: RDD[XGBLabeledPoint] = DataUtils.convertDataFrameToXGBLabeledPointRDDs(
-      col($(labelCol)), col($(featuresCol)), weight, baseMargin,
-      None, $(numWorkers), needDeterministicRepartitioning, dataset.asInstanceOf[DataFrame]).head
-    val evalRDDMap = getEvalSets(xgboostParams).map {
-      case (name, dataFrame) => (name,
-        DataUtils.convertDataFrameToXGBLabeledPointRDDs(col($(labelCol)), col($(featuresCol)),
-          weight, baseMargin, None, $(numWorkers), needDeterministicRepartitioning, dataFrame).head)
+    val (_booster, _metrics) = if (columnar) {
+      val (trainingSet: RDD[ArrowRecordBatchHandle], labelColOffset: Int) = DataUtils
+        .convertDataFrameToArrowRecordBatchRDDs(
+          col($(labelCol)), $(numWorkers), needDeterministicRepartitioning,
+          dataset.asInstanceOf[DataFrame]).head
+      val derivedXGBParamMap = MLlib2XGBoostParams
+      val width = dataset.schema.fields.length
+      XGBoost.trainDistributedWithArrowRDD(labelColOffset, width,
+        trainingSet, derivedXGBParamMap)
+    } else {
+      val trainingSet: RDD[XGBLabeledPoint] = DataUtils.convertDataFrameToXGBLabeledPointRDDs(
+        col($(labelCol)), col($(featuresCol)), weight, baseMargin,
+        None, $(numWorkers), needDeterministicRepartitioning, dataset.asInstanceOf[DataFrame]).head
+      val evalRDDMap = getEvalSets(xgboostParams).map {
+        case (name, dataFrame) => (name,
+          DataUtils.convertDataFrameToXGBLabeledPointRDDs(col($(labelCol)), col($(featuresCol)),
+            weight, baseMargin, None, $(numWorkers),
+            needDeterministicRepartitioning, dataFrame).head)
+      }
+      transformSchema(dataset.schema, logging = true)
+      val derivedXGBParamMap = MLlib2XGBoostParams
+      // All non-null param maps in XGBoostClassifier are in derivedXGBParamMap.
+      XGBoost.trainDistributed(trainingSet, derivedXGBParamMap,
+        hasGroup = false, evalRDDMap)
     }
-    transformSchema(dataset.schema, logging = true)
-    val derivedXGBParamMap = MLlib2XGBoostParams
-    // All non-null param maps in XGBoostClassifier are in derivedXGBParamMap.
-    val (_booster, _metrics) = XGBoost.trainDistributed(trainingSet, derivedXGBParamMap,
-      hasGroup = false, evalRDDMap)
+
+
     val model = new XGBoostClassificationModel(uid, _numClasses, _booster)
     val summary = XGBoostTrainingSummary(_metrics)
     model.setSummary(summary)

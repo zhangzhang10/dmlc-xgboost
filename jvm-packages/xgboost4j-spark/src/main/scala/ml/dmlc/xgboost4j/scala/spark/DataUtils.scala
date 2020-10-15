@@ -16,16 +16,28 @@
 
 package ml.dmlc.xgboost4j.scala.spark
 
-import ml.dmlc.xgboost4j.{LabeledPoint => XGBLabeledPoint}
+import java.util.Objects
 
+import ml.dmlc.xgboost4j.java.arrow.ArrowRecordBatchHandle
+import ml.dmlc.xgboost4j.java.util.UtilReflection
+import ml.dmlc.xgboost4j.{LabeledPoint => XGBLabeledPoint}
+import org.apache.arrow.vector.ValueVector
 import org.apache.spark.HashPartitioner
 import org.apache.spark.ml.feature.{LabeledPoint => MLLabeledPoint}
 import org.apache.spark.ml.linalg.{DenseVector, SparseVector, Vector, Vectors}
 import org.apache.spark.ml.param.Param
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.adaptive.{AdaptiveExecutionContext, InsertAdaptiveSparkPlan}
+import org.apache.spark.sql.dynamicpruning.PlanDynamicPruningFilters
+import org.apache.spark.sql.execution.exchange.{EnsureRequirements, ReuseExchange}
+import org.apache.spark.sql.execution._
 import org.apache.spark.sql.{Column, DataFrame, Row}
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.types.{FloatType, IntegerType}
+import org.apache.spark.sql.vectorized.{ArrowColumnVector, ColumnarBatch}
+
+import scala.collection.mutable.ListBuffer
 
 object DataUtils extends Serializable {
   private[spark] implicit class XGBLabeledPointFeatures(
@@ -145,6 +157,70 @@ object DataUtils extends Serializable {
       }
     }
     repartitionRDDs(deterministicPartition, numWorkers, arrayOfRDDs)
+  }
+
+  private[spark] def convertDataFrameToArrowRecordBatchRDDs(
+      labelCol: Column,
+      numWorkers: Int,
+      deterministicPartition: Boolean,
+      dataFrames: DataFrame*): Array[(RDD[ArrowRecordBatchHandle], Int)] = {
+
+    val arrayOfRDDs = dataFrames.toArray.map {
+      df => {
+        val qe = new QueryExecution(df.sparkSession, df.queryExecution.logical) {
+          override protected def preparations: Seq[Rule[SparkPlan]] = {
+            Seq(
+              InsertAdaptiveSparkPlan(AdaptiveExecutionContext(sparkSession)),
+              PlanDynamicPruningFilters(sparkSession),
+              PlanSubqueries(sparkSession),
+              EnsureRequirements(sparkSession.sessionState.conf),
+              CollapseCodegenStages(sparkSession.sessionState.conf),
+              ReuseExchange(sparkSession.sessionState.conf),
+              ReuseSubquery(sparkSession.sessionState.conf)
+            )
+          }
+        }
+
+        val plan = qe.executedPlan
+        val labelArray = plan.schema.fields.zipWithIndex.filter {
+          case (f, i) => {
+            if (Objects.equals(f.name, labelCol.toString())) true else false
+          }
+        }
+        if (labelArray.length == 0) {
+          throw new IllegalArgumentException("label column not found")
+        }
+        if (labelArray.length != 1) {
+          throw new IllegalArgumentException("clashed label column, aborting")
+        }
+
+        val rdd: RDD[ColumnarBatch] = plan.executeColumnar()
+        (rdd.map {
+          batch => {
+            val fields = ListBuffer[ArrowRecordBatchHandle.Field]()
+            val buffers = ListBuffer[ArrowRecordBatchHandle.Buffer]()
+            for (i <- 0 until batch.numCols()) {
+              val vector = batch.column(i).asInstanceOf[ArrowColumnVector]
+              val accessor = UtilReflection.getField(vector, "accessor")
+              val valueVector = UtilReflection.getField(accessor, "accessor")
+                .asInstanceOf[ValueVector]
+              val bufs = valueVector.getBuffers(false);
+              fields.append(new ArrowRecordBatchHandle.Field(bufs.length,
+                valueVector.getNullCount))
+              for (buf <- bufs) {
+                buf.retain()
+                buffers.append(new ArrowRecordBatchHandle.Buffer(buf.memoryAddress(),
+                  buf.getReferenceManager.getSize, buf.getReferenceManager.getSize,
+                  buf.getReferenceManager))
+              }
+
+            }
+            new ArrowRecordBatchHandle(batch.numRows(), fields.toArray, buffers.toArray)
+          }
+        }, labelArray(0)._2)
+      }
+    }
+    arrayOfRDDs
   }
 
 }
