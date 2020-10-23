@@ -32,6 +32,7 @@ public class ArrowRecordBatchHandle {
   private final long numRows;
   private final Field[] fields;
   private final Buffer[] buffers;
+  private final String[] dataTypes;
 
   /**
    * Constructor.
@@ -40,8 +41,10 @@ public class ArrowRecordBatchHandle {
    * @param fields Metadata of fields
    * @param buffers Retained Arrow buffers
    */
-  public ArrowRecordBatchHandle(long numRows, Field[] fields, Buffer[] buffers) {
+  public ArrowRecordBatchHandle(long numRows, String[] dataTypes,
+      Field[] fields, Buffer[] buffers) {
     this.numRows = numRows;
+    this.dataTypes = dataTypes;
     this.fields = fields;
     this.buffers = buffers;
   }
@@ -51,6 +54,10 @@ public class ArrowRecordBatchHandle {
    */
   public long getNumRows() {
     return numRows;
+  }
+
+  public String[] getDataTypes() {
+    return dataTypes;
   }
 
   /**

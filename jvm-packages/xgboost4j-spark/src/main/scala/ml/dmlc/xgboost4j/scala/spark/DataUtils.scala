@@ -199,6 +199,7 @@ object DataUtils extends Serializable {
           batch => {
             val fields = ListBuffer[ArrowRecordBatchHandle.Field]()
             val buffers = ListBuffer[ArrowRecordBatchHandle.Buffer]()
+            val dataTypes = ListBuffer[String]()
             for (i <- 0 until batch.numCols()) {
               val vector = batch.column(i).asInstanceOf[ArrowColumnVector]
               val accessor = UtilReflection.getField(vector, "accessor")
@@ -207,6 +208,7 @@ object DataUtils extends Serializable {
               val bufs = valueVector.getBuffers(false);
               fields.append(new ArrowRecordBatchHandle.Field(bufs.length,
                 valueVector.getNullCount))
+              dataTypes.append(vector.dataType().typeName)
               for (buf <- bufs) {
                 buf.retain()
                 buffers.append(new ArrowRecordBatchHandle.Buffer(buf.memoryAddress(),
@@ -215,7 +217,8 @@ object DataUtils extends Serializable {
               }
 
             }
-            new ArrowRecordBatchHandle(batch.numRows(), fields.toArray, buffers.toArray)
+            new ArrowRecordBatchHandle(batch.numRows(), dataTypes.toArray,
+              fields.toArray, buffers.toArray)
           }
         }, labelArray(0)._2)
       }
