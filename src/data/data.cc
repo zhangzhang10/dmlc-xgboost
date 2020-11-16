@@ -830,19 +830,59 @@ SparsePage SparsePage::GetTranspose(int num_columns) const {
   return transpose;
 }
 void SparsePage::Push(const SparsePage &batch) {
+  // Set number of threads but keep old value so we can reset it after
+  int nthread = 8;
+  const int nthreadmax = omp_get_max_threads();
+  if (nthread <= 0) nthread = 8;
+  const int nthread_original = omp_get_max_threads();
+  omp_set_num_threads(nthread);
+  
   auto& data_vec = data.HostVector();
   auto& offset_vec = offset.HostVector();
   const auto& batch_offset_vec = batch.offset.HostVector();
   const auto& batch_data_vec = batch.data.HostVector();
+  
   size_t top = offset_vec.back();
   data_vec.resize(top + batch.data.Size());
-  std::memcpy(dmlc::BeginPtr(data_vec) + top,
-              dmlc::BeginPtr(batch_data_vec),
-              sizeof(Entry) * batch.data.Size());
+  
+ 
+  size_t batch_size = batch.data.Size();
+  size_t thread_size = ceil(batch_size / nthread);
+  
+#pragma omp parallel for schedule(static)  
+  for (int i = 0; i < nthread; i ++) {
+    if (i == nthread - 1) {
+      size_t remain_size = batch_size - i * thread_size;
+      std::memcpy(dmlc::BeginPtr(data_vec) + top + i * thread_size,
+              dmlc::BeginPtr(batch_data_vec) + i * thread_size,
+              sizeof(Entry) * remain_size);
+    } else {
+      std::memcpy(dmlc::BeginPtr(data_vec) + top + i * thread_size,
+              dmlc::BeginPtr(batch_data_vec) + i * thread_size,
+              sizeof(Entry) * thread_size);
+    }
+  }
+		  
   size_t begin = offset.Size();
   offset_vec.resize(begin + batch.Size());
-  std::transform(std::next(batch_offset_vec.begin()), batch_offset_vec.end(), &offset_vec[begin],
-        [top](const size_t r) { return r+top;} );
+  
+  dmlc::OMPException exec;
+
+#pragma omp parallel num_threads(nthread)
+  {
+    exec.Run([&]() {
+       auto it = std::next(batch_offset_vec.begin());
+       size_t i = 0;
+       for (; it != batch_offset_vec.end(); ++it, ++i) {
+          offset_vec[begin + i] = (*it) + top;
+       }
+	 });
+  }
+  exec.Rethrow();
+  
+  omp_set_num_threads(nthread_original);
+  
+  return;
 }
 
 template <typename AdapterBatchT>
