@@ -184,8 +184,8 @@ class XGBoostClassifier (
     if (isDefined(customObj) && $(customObj) != null) {
       set(objectiveType, "classification")
     }
-    // only for the benchmark when the label col data type is float
-    val _numClasses = 2
+
+    val _numClasses = getNumClasses(dataset)
     if (isDefined(numClass) && $(numClass) != _numClasses) {
       throw new Exception("The number of classes in dataset doesn't match " +
         "\'num_class\' in xgboost params.")
