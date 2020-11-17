@@ -534,7 +534,7 @@ object XGBoost extends Serializable {
             xgbExecutionParams.eval, prevBooster)
       }).cache()
     } else {
-      val reducedrdd = processWatchesRDD(watchRdd, xgbExecutionParams.numWorkers).cache()
+      val reducedrdd = processWatchesRDD(watchRdd, xgbExecutionParams.nThread).cache()
       reducedrdd.count()
       watchRdd.unpersist()
 
@@ -583,7 +583,7 @@ object XGBoost extends Serializable {
             xgbExecutionParams.eval, prevBooster)
         }).cache()
       } else {
-        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.numWorkers).cache()
+        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.nThread).cache()
         reducedrdd.count()
         watchrdd.unpersist()
 
@@ -632,7 +632,7 @@ object XGBoost extends Serializable {
             xgbExecutionParams.eval, prevBooster)
         }).cache()
       } else {
-        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.numWorkers).cache()
+        val reducedrdd = processWatchesRDD(watchrdd, xgbExecutionParams.nThread).cache()
         reducedrdd.count()
         watchrdd.unpersist()
 
@@ -677,7 +677,7 @@ object XGBoost extends Serializable {
     }
   }
 
-  private def processWatchesRDD(watchrdd: RDD[Watches], numWorkers: Int): RDD[Watches] = {
+  private def processWatchesRDD(watchrdd: RDD[Watches], nThread: Int): RDD[Watches] = {
     val coalescedrdd = watchrdd.coalesce(1,
         partitionCoalescer = Some(new ExecutorInProcessCoalescePartitioner()))
     coalescedrdd.mapPartitions { iter =>
@@ -689,7 +689,7 @@ object XGBoost extends Serializable {
            }
         }
         Iterator( matcharr.reduce { (l, r) =>
-          val rst = l.combineDMatrix(r, totalsize)
+          val rst = l.combineDMatrix(r, totalsize, nThread)
           l.delete()
           r.delete()
           rst
@@ -997,10 +997,10 @@ private class Watches private(
     }
   }
 
-  def combineDMatrix(rightWatches: Watches, rowMap: Map[String, Long]): Watches = {
+  def combineDMatrix(rightWatches: Watches, rowMap: Map[String, Long], nThread: Int): Watches = {
     val namemap = rightWatches.toMap
     val result = toMap.map( ndpair => {
-      ndpair._2.combine(namemap(ndpair._1), rowMap(ndpair._1))
+      ndpair._2.combine(namemap(ndpair._1), rowMap(ndpair._1), nThread)
     }).toArray
     return new Watches(result, toMap.keys.toArray, cacheDirName)
   }

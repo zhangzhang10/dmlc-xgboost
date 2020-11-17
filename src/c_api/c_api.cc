@@ -278,6 +278,7 @@ XGB_DLL int XGDMatrixSliceDMatrixEx(DMatrixHandle handle,
 XGB_DLL int XGDMatrixCombineDMatrix(DMatrixHandle handle_left,
                                   DMatrixHandle handle_right,
                                   uint64_t total_size,
+                                  int nThread,
                                   DMatrixHandle* out) {
   API_BEGIN();
   CHECK_HANDLE_BY_NAME(handle_left);
@@ -285,7 +286,7 @@ XGB_DLL int XGDMatrixCombineDMatrix(DMatrixHandle handle_left,
   DMatrix* dmat = static_cast<std::shared_ptr<DMatrix>*>(handle_left)->get();
   DMatrix* dmat_right = static_cast<std::shared_ptr<DMatrix>*>(handle_right)->get();
 
-  dmat->Combine(dmat_right, total_size);
+  dmat->Combine(dmat_right, total_size, nThread);
   *out = new std::shared_ptr<DMatrix>(*(static_cast<std::shared_ptr<DMatrix>*>(handle_left)));
   API_END();
 }

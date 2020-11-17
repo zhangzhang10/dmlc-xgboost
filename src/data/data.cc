@@ -829,11 +829,10 @@ SparsePage SparsePage::GetTranspose(int num_columns) const {
   }
   return transpose;
 }
-void SparsePage::Push(const SparsePage &batch) {
+void SparsePage::Push(const SparsePage &batch, int nthread) {
   // Set number of threads but keep old value so we can reset it after
-  int nthread = 8;
   const int nthreadmax = omp_get_max_threads();
-  if (nthread <= 0) nthread = 8;
+  if (nthread <= 0) nthread = nthreadmax;
   const int nthread_original = omp_get_max_threads();
   omp_set_num_threads(nthread);
   

@@ -318,9 +318,10 @@ public class DMatrix {
    * @return combined DMatrix
    * @throws XGBoostError native error
    */
-  public DMatrix combine(DMatrix dmx, long totalSize) throws XGBoostError {
+  public DMatrix combine(DMatrix dmx, long totalSize, int nThread) throws XGBoostError {
     long[] out = new long[1];
-    XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixCombineDMatrix(handle, dmx.handle, totalSize, out));
+    XGBoostJNI.checkCall(XGBoostJNI.XGDMatrixCombineDMatrix(handle,
+          dmx.handle, totalSize, nThread, out));
     long sHandle = out[0];
     DMatrix sMatrix = new DMatrix(sHandle);
 

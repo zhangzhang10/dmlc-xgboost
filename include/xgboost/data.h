@@ -340,7 +340,7 @@ class SparsePage {
    * \brief Push a sparse page
    * \param batch the row page
    */
-  void Push(const SparsePage &batch);
+  void Push(const SparsePage &batch, int nThread);
   /*!
    * \brief Push a SparsePage stored in CSC format
    * \param batch The row batch to be pushed
@@ -562,7 +562,7 @@ class DMatrix {
                          int max_bin);
 
   virtual DMatrix *Slice(common::Span<int32_t const> ridxs) = 0;
-  virtual DMatrix* Combine(DMatrix* right, uint64_t total_size) {
+  virtual DMatrix* Combine(DMatrix* right, uint64_t total_size, int nThread) {
     CHECK(false) << " this type of DMatrix not supported";
     return this;
   }

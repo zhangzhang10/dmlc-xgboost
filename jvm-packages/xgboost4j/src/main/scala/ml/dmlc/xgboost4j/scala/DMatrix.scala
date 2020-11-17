@@ -218,8 +218,8 @@ class DMatrix private[scala](private[scala] val jDMatrix: JDMatrix) {
    * @return this DMatrix
    */
   @throws(classOf[XGBoostError])
-  def combine(rightDMatrix: DMatrix, totalSize: Long): DMatrix = {
-    new DMatrix(jDMatrix.combine(rightDMatrix.jDMatrix, totalSize))
+  def combine(rightDMatrix: DMatrix, totalSize: Long, nThread: Int): DMatrix = {
+    new DMatrix(jDMatrix.combine(rightDMatrix.jDMatrix, totalSize, nThread))
   }
 
   /**
