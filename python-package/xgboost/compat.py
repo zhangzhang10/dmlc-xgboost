@@ -199,11 +199,11 @@ except ImportError:
     scipy_sparse = False
     SCIPY_INSTALLED = False
 
-# pyarrow
-try:
-    from pyarrow import Table as ArrowTable
-
-    PYARROW_INSTALLED = True
-except ImportError:
-    ArrowTable = object
-    PYARROW_INSTALLED = False
+# # pyarrow
+# try:
+#     from pyarrow import Table as ArrowTable
+# 
+#     PYARROW_INSTALLED = True
+# except ImportError:
+#     ArrowTable = object
+#     PYARROW_INSTALLED = False

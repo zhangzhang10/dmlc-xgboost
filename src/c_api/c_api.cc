@@ -204,6 +204,7 @@ XGB_DLL int XGDMatrixCreateFromDT(void** data, const char** feature_stypes,
   API_END();
 }
 
+/*
 #if defined(XGBOOST_BUILD_ARROW_SUPPORT)
 XGB_DLL int XGDMatrixCreateFromArrowTable(PyObject* data,
                                           bst_ulong nrow,
@@ -246,6 +247,7 @@ XGB_DLL int XGDMatrixCreateFromArrowTable(PyObject* data,
   API_END();
 }
 #endif
+*/
 
 XGB_DLL int XGDMatrixSliceDMatrix(DMatrixHandle handle,
                                   const int* idxset,
